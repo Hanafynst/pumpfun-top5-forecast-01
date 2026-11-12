@@ -36,8 +36,7 @@ RESERVE_R0 = 0.30       # reserve at zero horizon
 RESERVE_RINF = 0.85     # reserve at long horizon
 RESERVE_TAU_H = 1.0     # horizon scale of the reserve
 SIZE_EXTRA_SD = 0.60    # sd of the wide size prior for the unborn share
-SIZE_PRIOR_SHIFT = 0.10  # wide prior centre, log10 above the named median
-MIN_P = 0.002           # rows below this join the reserve
+MIN_P = 0.006           # rows below this join the reserve
 
 # Prior drift (log10 cap per hour) by coin age in hours; overridden by the
 # history's own buckets when a bucket holds enough observations.
@@ -270,6 +269,8 @@ def main():
         med = samples[len(samples) // 2] if samples else 3.0
         # histogram over the 82 bins: simulated mass (1-reserve) + wide normal (reserve)
         bin_p = [0.0] * 82
+        bw = (edges[1] - edges[0]) if len(edges) > 1 else 0.05
+        KW = 2.5  # kernel half-width, in bins
         for x in samples:
             b = 0
             for i, e in enumerate(edges):
@@ -277,23 +278,26 @@ def main():
                     b = i + 1
                 else:
                     break
-            bin_p[b] += (1.0 - reserve) / len(samples)
+            if 1 <= b <= 80:
+                u = b + (x - edges[b - 1]) / bw
+            elif b == 0:
+                u = max(0.01, 1.0 + (x - edges[0]) / bw)
+            else:
+                u = min(80.99, 81.0 + (x - edges[80]) / bw)
+            ws = []
+            wsum = 0.0
+            for j in range(82):
+                w = 1.0 - abs(u - (j + 0.5)) / KW
+                if w > 0:
+                    ws.append((j, w)); wsum += w
+            for j, w in ws:
+                bin_p[j] += (1.0 - reserve) / len(samples) * (w / wsum)
         sd_wide = SIZE_EXTRA_SD
-        med_wide = med + SIZE_PRIOR_SHIFT
         for b in range(82):
             lo = -float("inf") if b == 0 else edges[b - 1]
             hi = float("inf") if b == 81 else edges[b]
-            pb = norm_cdf(hi, med_wide, sd_wide) - norm_cdf(lo, med_wide, sd_wide)
+            pb = norm_cdf(hi, med, sd_wide) - norm_cdf(lo, med, sd_wide)
             bin_p[b] += reserve * pb
-        # extra spread: convolve lightly by moving a share to neighbours
-        spread = [0.0] * 82
-        for b in range(82):
-            spread[b] += bin_p[b] * (1.0 - 2 * 0.10)
-            if b > 0:
-                spread[b - 1] += bin_p[b] * 0.10
-            if b < 81:
-                spread[b + 1] += bin_p[b] * 0.10
-        bin_p = spread
         tot = sum(bin_p)
         for b in range(82):
             p = bin_p[b] / tot if tot else 1.0 / 82
