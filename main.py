@@ -18,6 +18,11 @@ place, widened for the unborn share. Everything is read from task.json
 Deterministic: one fixed seed; two runs on the same history write byte-identical
 forecast.json.
 """
+# v2 (2026-11-12, after the server practice board graded v1 at -36.780851,
+# rank ~203/510, vs the house baseline's -40.408345): reserve now rises
+# faster and higher (TAU 0.5 h, RINF 0.90), size histograms are kernel-
+# smoothed instead of hard-binned + neighbour-spread, and the Monte Carlo
+# work budget is 4x larger so the final's 66-mark input keeps ~500 paths.
 # A fixed share of probability is reserved for coins not yet launched, since newcomers frequently outcompete all currently-visible coins at horizons beyond ~30 minutes.
 import json
 import math
@@ -29,12 +34,12 @@ INPUT_DIR = os.environ.get("MAKEFUN_INPUT_DIR", "/input")
 OUTPUT_DIR = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
 
 SEED = 20261112
-PATHS = 300
+PATHS = 700
 SIGMA_H = 0.28          # log10 units per sqrt(hour)
 VEL_TAU_H = 1.0         # decay of a coin's excess velocity
 RESERVE_R0 = 0.30       # reserve at zero horizon
-RESERVE_RINF = 0.85     # reserve at long horizon
-RESERVE_TAU_H = 1.0     # horizon scale of the reserve
+RESERVE_RINF = 0.90     # reserve at long horizon
+RESERVE_TAU_H = 0.5     # horizon scale of the reserve
 SIZE_EXTRA_SD = 0.60    # sd of the wide size prior for the unborn share
 MIN_P = 0.002           # rows below this join the reserve
 
@@ -209,7 +214,7 @@ def main():
     mints = [c["mint"] for c in coins]
     # adaptive path count: keep the Monte Carlo work bounded for the final's
     # 66-mark history (78 steps x up to 600 coins) while staying deterministic
-    n_paths = max(120, min(PATHS, 6_000_000 // max(1, n_steps * n_coins)))
+    n_paths = max(120, min(PATHS, 24_000_000 // max(1, n_steps * n_coins)))
     for _ in range(n_paths):
         xs = [c["x0"] for c in coins]
         step = 0
@@ -269,6 +274,8 @@ def main():
         med = samples[len(samples) // 2] if samples else 3.0
         # histogram over the 82 bins: simulated mass (1-reserve) + wide normal (reserve)
         bin_p = [0.0] * 82
+        bw = (edges[1] - edges[0]) if len(edges) > 1 else 0.05
+        KW = 2.5  # kernel half-width, in bins
         for x in samples:
             b = 0
             for i, e in enumerate(edges):
@@ -276,22 +283,26 @@ def main():
                     b = i + 1
                 else:
                     break
-            bin_p[b] += (1.0 - reserve) / len(samples)
+            if 1 <= b <= 80:
+                u = b + (x - edges[b - 1]) / bw
+            elif b == 0:
+                u = max(0.01, 1.0 + (x - edges[0]) / bw)
+            else:
+                u = min(80.99, 81.0 + (x - edges[80]) / bw)
+            ws = []
+            wsum = 0.0
+            for j in range(82):
+                w = 1.0 - abs(u - (j + 0.5)) / KW
+                if w > 0:
+                    ws.append((j, w)); wsum += w
+            for j, w in ws:
+                bin_p[j] += (1.0 - reserve) / len(samples) * (w / wsum)
         sd_wide = SIZE_EXTRA_SD
         for b in range(82):
             lo = -float("inf") if b == 0 else edges[b - 1]
             hi = float("inf") if b == 81 else edges[b]
             pb = norm_cdf(hi, med, sd_wide) - norm_cdf(lo, med, sd_wide)
             bin_p[b] += reserve * pb
-        # extra spread: convolve lightly by moving a share to neighbours
-        spread = [0.0] * 82
-        for b in range(82):
-            spread[b] += bin_p[b] * (1.0 - 2 * 0.10)
-            if b > 0:
-                spread[b - 1] += bin_p[b] * 0.10
-            if b < 81:
-                spread[b + 1] += bin_p[b] * 0.10
-        bin_p = spread
         tot = sum(bin_p)
         for b in range(82):
             p = bin_p[b] / tot if tot else 1.0 / 82
