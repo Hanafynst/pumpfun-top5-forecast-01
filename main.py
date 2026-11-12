@@ -29,11 +29,11 @@ INPUT_DIR = os.environ.get("MAKEFUN_INPUT_DIR", "/input")
 OUTPUT_DIR = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
 
 SEED = 20261112
-PATHS = 700
+PATHS = 300
 SIGMA_H = 0.28          # log10 units per sqrt(hour)
 VEL_TAU_H = 1.0         # decay of a coin's excess velocity
 RESERVE_R0 = 0.30       # reserve at zero horizon
-RESERVE_RINF = 0.85     # reserve at long horizon
+RESERVE_RINF = 0.75     # reserve at long horizon
 RESERVE_TAU_H = 1.0     # horizon scale of the reserve
 SIZE_EXTRA_SD = 0.60    # sd of the wide size prior for the unborn share
 MIN_P = 0.002           # rows below this join the reserve
@@ -209,7 +209,7 @@ def main():
     mints = [c["mint"] for c in coins]
     # adaptive path count: keep the Monte Carlo work bounded for the final's
     # 66-mark history (78 steps x up to 600 coins) while staying deterministic
-    n_paths = max(120, min(PATHS, 24_000_000 // max(1, n_steps * n_coins)))
+    n_paths = max(120, min(PATHS, 6_000_000 // max(1, n_steps * n_coins)))
     for _ in range(n_paths):
         xs = [c["x0"] for c in coins]
         step = 0
