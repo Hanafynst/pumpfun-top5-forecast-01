@@ -33,9 +33,10 @@ PATHS = 300
 SIGMA_H = 0.28          # log10 units per sqrt(hour)
 VEL_TAU_H = 1.0         # decay of a coin's excess velocity
 RESERVE_R0 = 0.30       # reserve at zero horizon
-RESERVE_RINF = 0.75     # reserve at long horizon
+RESERVE_RINF = 0.85     # reserve at long horizon
 RESERVE_TAU_H = 1.0     # horizon scale of the reserve
 SIZE_EXTRA_SD = 0.60    # sd of the wide size prior for the unborn share
+SIZE_PRIOR_SHIFT = 0.10  # wide prior centre, log10 above the named median
 MIN_P = 0.002           # rows below this join the reserve
 
 # Prior drift (log10 cap per hour) by coin age in hours; overridden by the
@@ -278,10 +279,11 @@ def main():
                     break
             bin_p[b] += (1.0 - reserve) / len(samples)
         sd_wide = SIZE_EXTRA_SD
+        med_wide = med + SIZE_PRIOR_SHIFT
         for b in range(82):
             lo = -float("inf") if b == 0 else edges[b - 1]
             hi = float("inf") if b == 81 else edges[b]
-            pb = norm_cdf(hi, med, sd_wide) - norm_cdf(lo, med, sd_wide)
+            pb = norm_cdf(hi, med_wide, sd_wide) - norm_cdf(lo, med_wide, sd_wide)
             bin_p[b] += reserve * pb
         # extra spread: convolve lightly by moving a share to neighbours
         spread = [0.0] * 82
