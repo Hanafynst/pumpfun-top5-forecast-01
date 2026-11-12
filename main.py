@@ -24,6 +24,14 @@ forecast.json.
 # smoothed instead of hard-binned + neighbour-spread, and the Monte Carlo
 # work budget is 4x larger so the final's 66-mark input keeps ~500 paths.
 # A fixed share of probability is reserved for coins not yet launched, since newcomers frequently outcompete all currently-visible coins at horizons beyond ~30 minutes.
+# v3 (2026-11-12, chasing the top of the board, not the middle): ONLY the size
+# head changes vs v2. Fold calibration (3 seeds x 4 rolling folds, components
+# swept offline) showed v2's unborn size prior was mis-centred: it sat on the
+# named coins' median cap, but a coin that takes a top place from outside the
+# simulated field has by construction outrun that field, and top-place caps in
+# the practice window rose steeply. The wide prior is now centred +0.50 log10
+# above the named median with sd 0.40, and its weight is the order reserve
+# x1.25 (capped 0.95). Order head, reserve schedule, MC engine unchanged.
 import json
 import math
 import os
@@ -40,7 +48,9 @@ VEL_TAU_H = 1.0         # decay of a coin's excess velocity
 RESERVE_R0 = 0.30       # reserve at zero horizon
 RESERVE_RINF = 0.90     # reserve at long horizon
 RESERVE_TAU_H = 0.5     # horizon scale of the reserve
-SIZE_EXTRA_SD = 0.60    # sd of the wide size prior for the unborn share
+SIZE_EXTRA_SD = 0.40    # sd of the wide size prior for the unborn share
+SIZE_PRIOR_SHIFT = 0.50  # wide prior centre, log10 above the named median
+SIZE_RESERVE_SCALE = 1.25  # size-head weight of the wide prior, x order reserve
 MIN_P = 0.002           # rows below this join the reserve
 
 # Prior drift (log10 cap per hour) by coin age in hours; overridden by the
@@ -266,6 +276,7 @@ def main():
     # practice folds, so it was reverted)
     top5 = [m for m, _ in sorted(top_scores.items(), key=lambda kv: -kv[1])[:5]]
     # sizes: simulated caps per place, mixed with a wide prior for the unborn share
+    size_reserve = max(0.05, min(0.95, reserve * SIZE_RESERVE_SCALE))
     for pl in range(places):
         samples = []
         for ri in range(n_reads):
@@ -296,13 +307,14 @@ def main():
                 if w > 0:
                     ws.append((j, w)); wsum += w
             for j, w in ws:
-                bin_p[j] += (1.0 - reserve) / len(samples) * (w / wsum)
+                bin_p[j] += (1.0 - size_reserve) / len(samples) * (w / wsum)
         sd_wide = SIZE_EXTRA_SD
+        med_wide = med + SIZE_PRIOR_SHIFT
         for b in range(82):
             lo = -float("inf") if b == 0 else edges[b - 1]
             hi = float("inf") if b == 81 else edges[b]
-            pb = norm_cdf(hi, med, sd_wide) - norm_cdf(lo, med, sd_wide)
-            bin_p[b] += reserve * pb
+            pb = norm_cdf(hi, med_wide, sd_wide) - norm_cdf(lo, med_wide, sd_wide)
+            bin_p[b] += size_reserve * pb
         tot = sum(bin_p)
         for b in range(82):
             p = bin_p[b] / tot if tot else 1.0 / 82
