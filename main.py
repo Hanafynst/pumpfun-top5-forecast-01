@@ -37,7 +37,7 @@ RESERVE_RINF = 0.85     # reserve at long horizon
 RESERVE_TAU_H = 1.0     # horizon scale of the reserve
 SIZE_EXTRA_SD = 0.60    # sd of the wide size prior for the unborn share
 SIZE_PLACE_SHIFT = [0.25, 0.12, 0.0, -0.12, -0.25]  # per-place tilt of the unborn prior centre (log10)
-MIN_P = 0.002           # rows below this join the reserve
+MIN_P = 0.006           # rows below this join the reserve
 
 # Prior drift (log10 cap per hour) by coin age in hours; overridden by the
 # history's own buckets when a bucket holds enough observations.
