@@ -18,20 +18,7 @@ place, widened for the unborn share. Everything is read from task.json
 Deterministic: one fixed seed; two runs on the same history write byte-identical
 forecast.json.
 """
-# v2 (2026-11-12, after the server practice board graded v1 at -36.780851,
-# rank ~203/510, vs the house baseline's -40.408345): reserve now rises
-# faster and higher (TAU 0.5 h, RINF 0.90), size histograms are kernel-
-# smoothed instead of hard-binned + neighbour-spread, and the Monte Carlo
-# work budget is 4x larger so the final's 66-mark input keeps ~500 paths.
 # A fixed share of probability is reserved for coins not yet launched, since newcomers frequently outcompete all currently-visible coins at horizons beyond ~30 minutes.
-# v3 (2026-11-12, chasing the top of the board, not the middle): ONLY the size
-# head changes vs v2. Fold calibration (3 seeds x 4 rolling folds, components
-# swept offline) showed v2's unborn size prior was mis-centred: it sat on the
-# named coins' median cap, but a coin that takes a top place from outside the
-# simulated field has by construction outrun that field, and top-place caps in
-# the practice window rose steeply. The wide prior is now centred +0.50 log10
-# above the named median with sd 0.40, and its weight is the order reserve
-# x1.25 (capped 0.95). Order head, reserve schedule, MC engine unchanged.
 import json
 import math
 import os
@@ -42,15 +29,13 @@ INPUT_DIR = os.environ.get("MAKEFUN_INPUT_DIR", "/input")
 OUTPUT_DIR = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
 
 SEED = 20261112
-PATHS = 700
+PATHS = 300
 SIGMA_H = 0.28          # log10 units per sqrt(hour)
 VEL_TAU_H = 1.0         # decay of a coin's excess velocity
 RESERVE_R0 = 0.30       # reserve at zero horizon
-RESERVE_RINF = 0.90     # reserve at long horizon
-RESERVE_TAU_H = 0.5     # horizon scale of the reserve
-SIZE_EXTRA_SD = 0.40    # sd of the wide size prior for the unborn share
-SIZE_PRIOR_SHIFT = 0.50  # wide prior centre, log10 above the named median
-SIZE_RESERVE_SCALE = 1.25  # size-head weight of the wide prior, x order reserve
+RESERVE_RINF = 0.85     # reserve at long horizon
+RESERVE_TAU_H = 1.0     # horizon scale of the reserve
+SIZE_EXTRA_SD = 0.60    # sd of the wide size prior for the unborn share
 MIN_P = 0.002           # rows below this join the reserve
 
 # Prior drift (log10 cap per hour) by coin age in hours; overridden by the
@@ -224,7 +209,7 @@ def main():
     mints = [c["mint"] for c in coins]
     # adaptive path count: keep the Monte Carlo work bounded for the final's
     # 66-mark history (78 steps x up to 600 coins) while staying deterministic
-    n_paths = max(120, min(PATHS, 24_000_000 // max(1, n_steps * n_coins)))
+    n_paths = max(120, min(PATHS, 6_000_000 // max(1, n_steps * n_coins)))
     for _ in range(n_paths):
         xs = [c["x0"] for c in coins]
         step = 0
@@ -276,7 +261,6 @@ def main():
     # practice folds, so it was reverted)
     top5 = [m for m, _ in sorted(top_scores.items(), key=lambda kv: -kv[1])[:5]]
     # sizes: simulated caps per place, mixed with a wide prior for the unborn share
-    size_reserve = max(0.05, min(0.95, reserve * SIZE_RESERVE_SCALE))
     for pl in range(places):
         samples = []
         for ri in range(n_reads):
@@ -307,14 +291,13 @@ def main():
                 if w > 0:
                     ws.append((j, w)); wsum += w
             for j, w in ws:
-                bin_p[j] += (1.0 - size_reserve) / len(samples) * (w / wsum)
+                bin_p[j] += (1.0 - reserve) / len(samples) * (w / wsum)
         sd_wide = SIZE_EXTRA_SD
-        med_wide = med + SIZE_PRIOR_SHIFT
         for b in range(82):
             lo = -float("inf") if b == 0 else edges[b - 1]
             hi = float("inf") if b == 81 else edges[b]
-            pb = norm_cdf(hi, med_wide, sd_wide) - norm_cdf(lo, med_wide, sd_wide)
-            bin_p[b] += size_reserve * pb
+            pb = norm_cdf(hi, med, sd_wide) - norm_cdf(lo, med, sd_wide)
+            bin_p[b] += reserve * pb
         tot = sum(bin_p)
         for b in range(82):
             p = bin_p[b] / tot if tot else 1.0 / 82
