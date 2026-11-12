@@ -36,7 +36,8 @@ RESERVE_R0 = 0.30       # reserve at zero horizon
 RESERVE_RINF = 0.85     # reserve at long horizon
 RESERVE_TAU_H = 1.0     # horizon scale of the reserve
 SIZE_EXTRA_SD = 0.60    # sd of the wide size prior for the unborn share
-MIN_P = 0.006           # rows below this join the reserve
+SIZE_PLACE_SHIFT = [0.25, 0.12, 0.0, -0.12, -0.25]  # per-place tilt of the unborn prior centre (log10)
+MIN_P = 0.002           # rows below this join the reserve
 
 # Prior drift (log10 cap per hour) by coin age in hours; overridden by the
 # history's own buckets when a bucket holds enough observations.
@@ -293,10 +294,11 @@ def main():
             for j, w in ws:
                 bin_p[j] += (1.0 - reserve) / len(samples) * (w / wsum)
         sd_wide = SIZE_EXTRA_SD
+        med_wide = med + (SIZE_PLACE_SHIFT[pl] if pl < len(SIZE_PLACE_SHIFT) else 0.0)
         for b in range(82):
             lo = -float("inf") if b == 0 else edges[b - 1]
             hi = float("inf") if b == 81 else edges[b]
-            pb = norm_cdf(hi, med, sd_wide) - norm_cdf(lo, med, sd_wide)
+            pb = norm_cdf(hi, med_wide, sd_wide) - norm_cdf(lo, med_wide, sd_wide)
             bin_p[b] += reserve * pb
         tot = sum(bin_p)
         for b in range(82):
